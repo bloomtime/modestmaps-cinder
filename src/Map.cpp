@@ -1,5 +1,6 @@
 
 #include "Map.h"
+#include "cinder/Camera.h"
 
 namespace cinder { namespace modestmaps {         
     
@@ -107,8 +108,8 @@ void Map::draw() {
 	// can this be done with a different comparison function on the visibleKeys set?
 	//Collections.sort(visibleKeys, zoomComparator);
 
-    glPushMatrix();
-    glRotatef(180.0*rotation/M_PI, 0, 0, 1);
+//    glPushMatrix();
+//    glRotatef(180.0*rotation/M_PI, 0, 0, 1);
 
 	int numDrawnImages = 0;	
 	std::set<Coordinate>::iterator citer;
@@ -131,13 +132,18 @@ void Map::draw() {
             if (result != recentImages.end()) {
                 recentImages.erase(result);
             }
-			gl::draw( tile, Rectf(tx, ty, tx+tileSize.x, ty+tileSize.y) );
+            Matrix44f mtx;
+            mtx.rotate( Vec3f(0,0,rotation) );
+            mtx.translate( Vec3f(tx,ty,0) );
+            mtx.scale( Vec3f(scale,scale,1) );
+            drawTile( tile, mtx, Color::white() );
+//			gl::draw( tile, Rectf(tx, ty, tx+tileSize.x, ty+tileSize.y) );
 			numDrawnImages++;
 			recentImages.push_back(coord);
 		}
 	}
     
-    glPopMatrix();
+//    glPopMatrix();
 	
 	// stop fetching things we can't see:
 	// (visibleKeys also has the parents and children, if needed, but that shouldn't matter)
@@ -310,7 +316,7 @@ void Map::setMapProvider( MapProviderRef _mapProvider )
 
 Vec2d Map::coordinatePoint(const Coordinate &target) const
 {
-	/* Return an x, y point on the map image for a given coordinate. */
+	// Return an x, y point on the map image for a given coordinate.
 	
 	Coordinate coord = target;
 	
@@ -331,7 +337,7 @@ Vec2d Map::coordinatePoint(const Coordinate &target) const
 }
 
 Coordinate Map::pointCoordinate(const Vec2d &point) const {
-	/* Return a coordinate on the map image for a given x, y point. */		
+	// Return a coordinate on the map image for a given x, y point.
 	// new point coordinate reflecting distance from map center, in tile widths
 	Vec2d rotated(point);
     const Vec2d tileSize = mapProvider->getTileSize();    
@@ -392,5 +398,64 @@ void Map::setSize(Vec2d _size) {
 Vec2d Map::getSize() const {
 	return size;
 }
+    
+void Map::drawTile( const ci::gl::Texture &texture, const ci::Matrix44f &mat, const ci::ColorA &color )
+{
+    static ci::gl::GlslProg prog;
+    
+    if (!prog) {
+        const char *vert = "precision highp float; uniform mat4 u_mvp_matrix; attribute vec2 a_texcoord; attribute vec4 a_position; uniform vec4 u_color; varying vec2 v_texcoord; varying vec4 v_color; void main() { gl_Position = u_mvp_matrix * a_position; v_texcoord = a_texcoord; v_color = u_color; }"; 
+        const char *frag = "precision highp float; uniform sampler2D u_diffuseTex; varying vec4 v_color; varying vec2 v_texcoord; void main() { vec4 color = texture2D(u_diffuseTex, v_texcoord); gl_FragColor = color * v_color;}";
+        try {
+            prog = ci::gl::GlslProg( vert, frag );        
+        } catch(ci::gl::GlslProgCompileExc e) {
+            std::cout << e.what() << std::endl;
+        }
+    }
+    
+    ci::Rectf area = texture.getBounds();
+    
+    float vertices[12] = {
+        area.x1, area.y1, 0.0f,
+        area.x2, area.y1, 0.0f,
+        area.x1, area.y2, 0.0f,
+        area.x2, area.y2, 0.0f
+    };
+    
+    const static float textures[8] = {
+        0.0, 0.0,
+        1.0, 0.0,
+        0.0, 1.0,
+        1.0, 1.0
+    };
+    
+    ci::CameraOrtho sceneCamera;
+    sceneCamera.setOrtho(0, size.x, size.y, 0, -1, 1);
+    
+    texture.bind(0);
+    
+    prog.bind();
+    
+    prog.uniform("u_mvp_matrix", sceneCamera.getProjectionMatrix() * mat);
+    prog.uniform("u_color", ci::Vec4f(color.r, color.g, color.b, color.a));
+    
+    GLuint texAttr = prog.getAttribLocation("a_texcoord"); 
+    GLuint vertexAttr = prog.getAttribLocation("a_position"); 
+    
+    glEnableVertexAttribArray(texAttr);
+    glEnableVertexAttribArray(vertexAttr);
+    
+    glVertexAttribPointer(texAttr, 2, GL_FLOAT, 0, 0, textures);    
+    glVertexAttribPointer(vertexAttr, 3, GL_FLOAT, 0, 0, vertices);    
+    
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);    
+    
+    glDisableVertexAttribArray(texAttr);
+    glDisableVertexAttribArray(vertexAttr);
+    
+    prog.unbind();   
+    
+    texture.unbind();
+}
 	
-} } // namespace
+} } // namespace 

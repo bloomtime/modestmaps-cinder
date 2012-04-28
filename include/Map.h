@@ -10,10 +10,9 @@
 #include "QueueSorter.h"
 #include "TileLoader.h"
 
-#include "cinder/app/AppBasic.h"
-#include "cinder/ImageIo.h"
 #include "cinder/gl/Texture.h"
 #include "cinder/Vector.h"
+#include "cinder/gl/GlslProg.h"
 
 namespace cinder { namespace modestmaps {
 	
@@ -63,6 +62,8 @@ private:
 	
 	void processQueue();
 
+    void drawTile(const ci::gl::Texture &texture, const ci::Matrix44f &mat, const ci::ColorA &color);
+    
 public:	
 	
 	Map() {}

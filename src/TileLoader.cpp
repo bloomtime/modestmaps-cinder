@@ -8,26 +8,63 @@
  */
 
 #include "TileLoader.h"
-
-#if defined( CINDER_COCOA )
-#include <objc/objc-auto.h>
-#endif
+#include "cinder/Thread.h"
 
 namespace cinder { namespace modestmaps {
 
+class TileLoaderImpl 
+{
+public:
+
+    TileLoaderImpl( MapProviderRef _provider ): provider(_provider) {}
+    
+	std::mutex pendingCompleteMutex;
+	std::set<Coordinate> pending;
+	std::map<Coordinate, Surface> completed;
+    MapProviderRef provider;
+    
+    void doThreadedPaint( const Coordinate &coord );    
+	void processQueue( std::vector<Coordinate> &queue );
+	void transferTextures( std::map<Coordinate, gl::Texture> &images);
+	bool isPending(const Coordinate &coord);
+    void setMapProvider( MapProviderRef _provider );    
+};
+    
+TileLoader::TileLoader( MapProviderRef _provider )
+{
+    impl = new TileLoaderImpl( _provider );
+}
+
+TileLoader::~TileLoader()
+{
+    delete impl;
+}
+
+void TileLoader::processQueue( std::vector<Coordinate> &queue )
+{
+    impl->processQueue(queue);
+}
+void TileLoader::transferTextures( std::map<Coordinate, gl::Texture> &images)
+{
+    impl->transferTextures(images);
+}
+bool TileLoader::isPending(const Coordinate &coord)
+{
+    return impl->isPending(coord);
+}    
+void TileLoader::setMapProvider( MapProviderRef _provider )
+{
+    impl->setMapProvider(_provider);
+}
 void TileLoader::doThreadedPaint( const Coordinate &coord )
 {
-#if defined( CINDER_COCOA )
-	// borrowed from https://llvm.org/svn/llvm-project/lldb/trunk/source/Host/macosx/Host.mm
-  #if MAC_OS_X_VERSION_MAX_ALLOWED <= MAC_OS_X_VERSION_10_5
-	// On Leopard and earlier there is no way objc_registerThreadWithCollector
-	// function, so we do it manually.
-	auto_zone_register_thread(auto_zone());
-  #else
-	// On SnowLoepard and later we just call the thread registration function.
-	objc_registerThreadWithCollector();
-  #endif	
-#endif	
+    impl->doThreadedPaint(coord);
+}
+
+    
+void TileLoaderImpl::doThreadedPaint( const Coordinate &coord )
+{
+    ThreadSetup threadSetup;
 
 	Surface image;
     
@@ -45,7 +82,7 @@ void TileLoader::doThreadedPaint( const Coordinate &coord )
 	pendingCompleteMutex.unlock();
 }
 
-void TileLoader::processQueue(std::vector<Coordinate> &queue )
+void TileLoaderImpl::processQueue(std::vector<Coordinate> &queue )
 {
 	while (pending.size() < MAX_PENDING && queue.size() > 0) {
 		Coordinate key = *(queue.begin());
@@ -56,11 +93,11 @@ void TileLoader::processQueue(std::vector<Coordinate> &queue )
         pendingCompleteMutex.unlock();	
         
         // TODO: consider using a single thread and a queue, rather than a thread per load?
-        std::thread loaderThread( &TileLoader::doThreadedPaint, this, key );        
+        std::thread loaderThread( &TileLoaderImpl::doThreadedPaint, this, key );        
 	}
 }
 
-void TileLoader::transferTextures(std::map<Coordinate, gl::Texture> &images)
+void TileLoaderImpl::transferTextures(std::map<Coordinate, gl::Texture> &images)
 {
     // use try_lock because we can just wait until next frame if needed
     if (pendingCompleteMutex.try_lock()) {
@@ -75,7 +112,7 @@ void TileLoader::transferTextures(std::map<Coordinate, gl::Texture> &images)
     }
 }
     
-bool TileLoader::isPending(const Coordinate &coord)
+bool TileLoaderImpl::isPending(const Coordinate &coord)
 {
     bool coordIsPending = false;
     pendingCompleteMutex.lock();
@@ -84,7 +121,7 @@ bool TileLoader::isPending(const Coordinate &coord)
     return coordIsPending;
 }
     
-void TileLoader::setMapProvider( MapProviderRef _provider )
+void TileLoaderImpl::setMapProvider( MapProviderRef _provider )
 {
 	pendingCompleteMutex.lock();
     completed.clear();
@@ -93,4 +130,4 @@ void TileLoader::setMapProvider( MapProviderRef _provider )
     provider = _provider;
 }
 
-} } // namespace
+} } // namespace 

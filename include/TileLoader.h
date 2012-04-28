@@ -2,9 +2,10 @@
 
 #include <set>
 #include <map>
+
 #include "cinder/Cinder.h"
-#include "cinder/Thread.h"
 #include "cinder/gl/Texture.h"
+
 #include "Coordinate.h"
 #include "MapProvider.h"
 
@@ -16,21 +17,20 @@ namespace cinder { namespace modestmaps {
 class TileLoader;
 typedef std::shared_ptr<TileLoader> TileLoaderRef;
 
+class TileLoaderImpl;
+    
 class TileLoader
 {
 	
 private:
     
-    TileLoader( MapProviderRef _provider ): provider(_provider) {}
+    TileLoader( MapProviderRef _provider );
     
     void doThreadedPaint( const Coordinate &coord );
     
-	std::mutex pendingCompleteMutex;	
-	std::set<Coordinate> pending;
-	std::map<Coordinate, Surface> completed;
-    
-    MapProviderRef provider;
-    
+    // using an impl here because cinder/Thread.h was giving Objective-C the hiccups
+    TileLoaderImpl *impl;
+        
 public:
     
     static TileLoaderRef create( MapProviderRef provider )
@@ -38,14 +38,16 @@ public:
         return TileLoaderRef( new TileLoader( provider ) );
     }
     
+    ~TileLoader();
+    
 	void processQueue( std::vector<Coordinate> &queue );
 	
-	void transferTextures( std::map<Coordinate, gl::Texture> &images);
+	void transferTextures( std::map<Coordinate, gl::Texture> &images );
 
-	bool isPending(const Coordinate &coord);
+	bool isPending( const Coordinate &coord );
     
     void setMapProvider( MapProviderRef _provider );
     
 };
     
-} } // namespace
+} } // namespace 

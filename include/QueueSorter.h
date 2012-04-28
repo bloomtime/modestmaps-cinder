@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Coordinate.h"
+
 namespace cinder { namespace modestmaps {
 	
 class QueueSorter {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ostream>
+#include <cmath>
 
 namespace cinder { namespace modestmaps {
 	
