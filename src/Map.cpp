@@ -386,7 +386,8 @@ void Map::grabTile(const Coordinate &coord) {
 }
 
 void Map::processQueue() {	
-	sort(queue.begin(), queue.end(), QueueSorter(getCenterCoordinate().zoomTo(getZoom())));		
+    int baseZoom = constrain((int)round(centerCoordinate.zoom), mapProvider->getMinZoom(), mapProvider->getMaxZoom());
+	sort(queue.begin(), queue.end(), QueueSorter(getCenterCoordinate().zoomTo(baseZoom)));		
 	tileLoader->processQueue(queue);
 	tileLoader->transferTextures(images);
 }
