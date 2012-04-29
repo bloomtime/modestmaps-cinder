@@ -25,6 +25,9 @@ namespace cinder { namespace modestmaps {
 // (we'll always keep as many images as needed to fill the screen though)
 #define MAX_IMAGES_TO_KEEP 256
 
+// limit simultaneous calls to loadImage
+#define MAX_PENDING 2
+    
 // upping this can help appearances when zooming out, but also loads many more tiles
 #define GRID_PADDING 0
 

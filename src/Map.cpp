@@ -408,11 +408,26 @@ void Map::grabTile(const Coordinate &coord) {
     }
 }
 
-void Map::processQueue() {	
+void Map::processQueue()
+{	
+    // fetch things nearest the current center first
+    // (TODO: take current pan/scale velocity into account? look-ahead by expected load duration?)
     int baseZoom = constrain((int)round(centerCoordinate.zoom), mapProvider->getMinZoom(), mapProvider->getMaxZoom());
 	sort(queue.begin(), queue.end(), QueueSorter(getCenterCoordinate().zoomTo(baseZoom)));		
-	tileLoader->processQueue(queue);
-	tileLoader->transferTextures(tiles);
+
+    // pull some coords off the queue and request images for them
+    while (tileLoader->getPendingCount() < MAX_PENDING && queue.size() > 0) {
+		Coordinate key = *(queue.begin());
+		queue.erase(queue.begin());
+        tileLoader->fetchCoord(key);
+	}
+
+    // if we've got a completed Surface, grab it and add it to our tiles collection
+    // (doesn't block but may return nothing)
+    if (TileRef tile = tileLoader->getNextCompletedTile()) {
+        tile->setLastAddedTime( timer.getSeconds() );
+        tiles[tile->getCoord()] = tile;
+    }
 }
 
 void Map::setSize(Vec2d _size) {

@@ -9,7 +9,6 @@
 
 #include "TileLoader.h"
 #include "cinder/Thread.h"
-#include "cinder/Timer.h"
 
 namespace cinder { namespace modestmaps {
 
@@ -17,21 +16,19 @@ class TileLoaderImpl
 {
 public:
 
-    TileLoaderImpl( MapProviderRef _provider ): 
-        provider(_provider) 
-    { 
-        timer.start(); 
-    }
+    TileLoaderImpl( MapProviderRef _provider ): provider(_provider) { }
     
 	std::mutex pendingCompleteMutex;
 	std::set<Coordinate> pending;
 	std::map<Coordinate, Surface> completed;
     MapProviderRef provider;
-    Timer timer;
     
-    void doThreadedPaint( const Coordinate &coord );    
-	void processQueue( std::vector<Coordinate> &queue );
-	void transferTextures( std::map<Coordinate, TileRef> &tiles);
+    int getPendingCount();
+    int getCompletedCount();
+
+    void doThreadedPaint( const Coordinate &coord );
+	void fetchCoord( const Coordinate &coord );
+	TileRef getNextCompletedTile();
 	bool hasCoord(const Coordinate &coord);
     void setMapProvider( MapProviderRef _provider );    
 };
@@ -56,28 +53,25 @@ void TileLoaderImpl::doThreadedPaint( const Coordinate &coord )
 	pendingCompleteMutex.unlock();
 }
 
-void TileLoaderImpl::processQueue(std::vector<Coordinate> &queue )
+void TileLoaderImpl::fetchCoord( const Coordinate &coord )
 {
-	while (pending.size() < MAX_PENDING && queue.size() > 0) {
-		Coordinate key = *(queue.begin());
-		queue.erase(queue.begin());
-
-        pendingCompleteMutex.lock();
-        pending.insert(key);
-        pendingCompleteMutex.unlock();	
-        
-        // TODO: consider using a single thread and a queue, rather than a thread per load?
-        std::thread loaderThread( &TileLoaderImpl::doThreadedPaint, this, key );        
-	}
+    pendingCompleteMutex.lock();
+    pending.insert(coord);
+    pendingCompleteMutex.unlock();	
+    
+    // TODO: consider using a single thread and a queue, rather than a thread per load?
+    std::thread loaderThread( &TileLoaderImpl::doThreadedPaint, this, coord );            
 }
 
-void TileLoaderImpl::transferTextures(std::map<Coordinate, TileRef> &tiles)
+TileRef TileLoaderImpl::getNextCompletedTile()
 {
     gl::Texture::Format format;
     format.enableMipmapping( true );
     format.setMinFilter( GL_LINEAR ); //GL_LINEAR OR GL_NEAREST
     format.setMagFilter( GL_LINEAR );
     format.setWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+    
+    TileRef tile;
     
     // use try_lock because we can just wait until next frame if needed
     if (pendingCompleteMutex.try_lock()) {
@@ -86,15 +80,14 @@ void TileLoaderImpl::transferTextures(std::map<Coordinate, TileRef> &tiles)
             Coordinate coord = iter->first;
             Surface surface = iter->second;
             if (surface) {
-                TileRef tile = Tile::create(coord);
-                tile->setTexture( gl::Texture(surface, format) );
-                tile->setLastAddedTime( timer.getSeconds() );
-                tiles[coord] = tile;
+                tile = Tile::create(coord, gl::Texture(surface, format));
             }
             completed.erase(iter);
         }
         pendingCompleteMutex.unlock();
     }
+    
+    return tile;
 }
     
 bool TileLoaderImpl::hasCoord(const Coordinate &coord)
@@ -117,6 +110,16 @@ void TileLoaderImpl::setMapProvider( MapProviderRef _provider )
     provider = _provider;
 }
 
+int TileLoaderImpl::getPendingCount()
+{
+    return pending.size();
+}
+    
+int TileLoaderImpl::getCompletedCount()
+{
+    return completed.size();
+}
+    
 TileLoader::TileLoader( MapProviderRef _provider )
 {
     impl = new TileLoaderImpl( _provider );
@@ -125,13 +128,13 @@ TileLoader::~TileLoader()
 {
     delete impl;
 }
-void TileLoader::processQueue( std::vector<Coordinate> &queue )
+void TileLoader::fetchCoord( const Coordinate &coord )
 {
-    impl->processQueue(queue);
+    impl->fetchCoord( coord );
 }
-void TileLoader::transferTextures( std::map<Coordinate, TileRef> &tiles)
+TileRef TileLoader::getNextCompletedTile()
 {
-    impl->transferTextures(tiles);
+    return impl->getNextCompletedTile();
 }
 bool TileLoader::hasCoord(const Coordinate &coord)
 {
@@ -140,6 +143,14 @@ bool TileLoader::hasCoord(const Coordinate &coord)
 void TileLoader::setMapProvider( MapProviderRef _provider )
 {
     impl->setMapProvider(_provider);
+}
+int TileLoader::getPendingCount()
+{
+    return impl->getPendingCount();
+}
+int TileLoader::getCompletedCount()
+{
+    return impl->getCompletedCount();
 }
     
 } } // namespace 

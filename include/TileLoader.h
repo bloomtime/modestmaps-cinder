@@ -12,9 +12,6 @@
 
 namespace cinder { namespace modestmaps {
 
-// limit simultaneous calls to loadImage
-#define MAX_PENDING 2
-
 class TileLoader;
 typedef std::shared_ptr<TileLoader> TileLoaderRef;
 
@@ -38,13 +35,19 @@ public:
     }
     
     ~TileLoader();
-    
-    // pull things off the given queue and start loading them in the background
-	void processQueue( std::vector<Coordinate> &queue );
-	
-    // create Tiles and Textures for finished Surfaces and add them to the given map
-	void transferTextures( std::map<Coordinate, TileRef> &tiles );
 
+    // how many things are we currently requesting?
+    int getPendingCount();
+    
+    // how many surfaces await Texture creation?
+    int getCompletedCount();
+    
+    // start loading a texture for the given coord in the background
+	void fetchCoord( const Coordinate &coord );
+	
+    // create Texture for next finished Surface and return a new Tile
+	TileRef getNextCompletedTile();
+    
     // true if we're loading this tile (false if it's done loading already)
 	bool hasCoord( const Coordinate &coord );
     

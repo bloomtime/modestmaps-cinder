@@ -20,9 +20,9 @@ class Tile
 {
 public:
     
-    static TileRef create(const Coordinate &coord)
+    static TileRef create(const Coordinate &coord, gl::Texture texture)
     {
-        return TileRef(new Tile(coord));
+        return TileRef(new Tile(coord, texture));
     }
     
     Coordinate getCoord()
@@ -63,7 +63,7 @@ public:
     
 private:
     
-    Tile( const Coordinate &_coord ): coord(_coord), lastAddedTime(-1) {}
+    Tile( const Coordinate &_coord, gl::Texture _texture ): coord(_coord), texture(_texture), lastAddedTime(-1) {}
     
     Coordinate coord;
     float lastAddedTime;
