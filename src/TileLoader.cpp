@@ -99,12 +99,18 @@ void TileLoaderImpl::processQueue(std::vector<Coordinate> &queue )
 
 void TileLoaderImpl::transferTextures(std::map<Coordinate, gl::Texture> &images)
 {
+    gl::Texture::Format format;
+    format.enableMipmapping( true );
+    format.setMinFilter( GL_LINEAR ); //GL_LINEAR OR GL_NEAREST
+    format.setMagFilter( GL_LINEAR );
+    format.setWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+    
     // use try_lock because we can just wait until next frame if needed
     if (pendingCompleteMutex.try_lock()) {
         if (!completed.empty()) {
             std::map<Coordinate, Surface>::iterator iter = completed.begin();
             if (iter->second) {
-                images[iter->first] = gl::Texture(iter->second);		
+                images[iter->first] = gl::Texture(iter->second, format);
             }
             completed.erase(iter);
         }
