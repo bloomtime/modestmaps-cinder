@@ -9,6 +9,7 @@
 #include "Coordinate.h"
 #include "QueueSorter.h"
 #include "TileLoader.h"
+#include "Tile.h"
 
 #include "cinder/gl/Texture.h"
 #include "cinder/Vector.h"
@@ -48,16 +49,13 @@ private:
     TileLoaderRef tileLoader;
 
 	// loaded tiles
-	std::map<Coordinate, gl::Texture> images;
+	std::map<Coordinate, TileRef> tiles;
 	
 	// coords waiting to load
 	std::vector<Coordinate> queue;
 	
 	// a list of the most recent MAX_IMAGES_TO_KEEP images we've seen
 	std::vector<Coordinate> recentImages;
-
-    // loaded tiles by time added to screen (parallel with images)
-	std::map<Coordinate, float> imageAddedTimes;
 
 	// keep track of what we can see already:
 	std::set<Coordinate> visibleKeys;

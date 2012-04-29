@@ -8,6 +8,7 @@
 
 #include "Coordinate.h"
 #include "MapProvider.h"
+#include "Tile.h"
 
 namespace cinder { namespace modestmaps {
 
@@ -25,9 +26,7 @@ class TileLoader
 private:
     
     TileLoader( MapProviderRef _provider );
-    
-    void doThreadedPaint( const Coordinate &coord );
-    
+        
     // using an impl here because cinder/Thread.h was giving Objective-C the hiccups
     TileLoaderImpl *impl;
         
@@ -40,12 +39,16 @@ public:
     
     ~TileLoader();
     
+    // pull things off the given queue and start loading them in the background
 	void processQueue( std::vector<Coordinate> &queue );
 	
-	void transferTextures( std::map<Coordinate, gl::Texture> &images );
+    // create Tiles and Textures for finished Surfaces and add them to the given map
+	void transferTextures( std::map<Coordinate, TileRef> &tiles );
 
-	bool isPending( const Coordinate &coord );
+    // true if we're loading this tile (false if it's done loading already)
+	bool hasCoord( const Coordinate &coord );
     
+    // Clear all the pending/complete tiles and set a new map provider
     void setMapProvider( MapProviderRef _provider );
     
 };

@@ -9,6 +9,7 @@
 
 #include "TileLoader.h"
 #include "cinder/Thread.h"
+#include "cinder/Timer.h"
 
 namespace cinder { namespace modestmaps {
 
@@ -16,52 +17,25 @@ class TileLoaderImpl
 {
 public:
 
-    TileLoaderImpl( MapProviderRef _provider ): provider(_provider) {}
+    TileLoaderImpl( MapProviderRef _provider ): 
+        provider(_provider) 
+    { 
+        timer.start(); 
+    }
     
 	std::mutex pendingCompleteMutex;
 	std::set<Coordinate> pending;
 	std::map<Coordinate, Surface> completed;
     MapProviderRef provider;
+    Timer timer;
     
     void doThreadedPaint( const Coordinate &coord );    
 	void processQueue( std::vector<Coordinate> &queue );
-	void transferTextures( std::map<Coordinate, gl::Texture> &images);
-	bool isPending(const Coordinate &coord);
+	void transferTextures( std::map<Coordinate, TileRef> &tiles);
+	bool hasCoord(const Coordinate &coord);
     void setMapProvider( MapProviderRef _provider );    
 };
-    
-TileLoader::TileLoader( MapProviderRef _provider )
-{
-    impl = new TileLoaderImpl( _provider );
-}
 
-TileLoader::~TileLoader()
-{
-    delete impl;
-}
-
-void TileLoader::processQueue( std::vector<Coordinate> &queue )
-{
-    impl->processQueue(queue);
-}
-void TileLoader::transferTextures( std::map<Coordinate, gl::Texture> &images)
-{
-    impl->transferTextures(images);
-}
-bool TileLoader::isPending(const Coordinate &coord)
-{
-    return impl->isPending(coord);
-}    
-void TileLoader::setMapProvider( MapProviderRef _provider )
-{
-    impl->setMapProvider(_provider);
-}
-void TileLoader::doThreadedPaint( const Coordinate &coord )
-{
-    impl->doThreadedPaint(coord);
-}
-
-    
 void TileLoaderImpl::doThreadedPaint( const Coordinate &coord )
 {
     ThreadSetup threadSetup;
@@ -77,7 +51,7 @@ void TileLoaderImpl::doThreadedPaint( const Coordinate &coord )
         if (image) {
             completed[coord] = image;
         }
-        pending.erase(coord);  
+        pending.erase(coord);
     } // otherwise clear was called so we should abandon this image to the ether
 	pendingCompleteMutex.unlock();
 }
@@ -97,7 +71,7 @@ void TileLoaderImpl::processQueue(std::vector<Coordinate> &queue )
 	}
 }
 
-void TileLoaderImpl::transferTextures(std::map<Coordinate, gl::Texture> &images)
+void TileLoaderImpl::transferTextures(std::map<Coordinate, TileRef> &tiles)
 {
     gl::Texture::Format format;
     format.enableMipmapping( true );
@@ -109,8 +83,13 @@ void TileLoaderImpl::transferTextures(std::map<Coordinate, gl::Texture> &images)
     if (pendingCompleteMutex.try_lock()) {
         if (!completed.empty()) {
             std::map<Coordinate, Surface>::iterator iter = completed.begin();
-            if (iter->second) {
-                images[iter->first] = gl::Texture(iter->second, format);
+            Coordinate coord = iter->first;
+            Surface surface = iter->second;
+            if (surface) {
+                TileRef tile = Tile::create(coord);
+                tile->setTexture( gl::Texture(surface, format) );
+                tile->setLastAddedTime( timer.getSeconds() );
+                tiles[coord] = tile;
             }
             completed.erase(iter);
         }
@@ -118,13 +97,15 @@ void TileLoaderImpl::transferTextures(std::map<Coordinate, gl::Texture> &images)
     }
 }
     
-bool TileLoaderImpl::isPending(const Coordinate &coord)
+bool TileLoaderImpl::hasCoord(const Coordinate &coord)
 {
     bool coordIsPending = false;
+    bool coordIsComplete = false;
     pendingCompleteMutex.lock();
     coordIsPending = (pending.count(coord) > 0);
+    coordIsComplete = (completed.count(coord) > 0);
     pendingCompleteMutex.unlock();
-    return coordIsPending;
+    return coordIsPending || coordIsComplete;
 }
     
 void TileLoaderImpl::setMapProvider( MapProviderRef _provider )
@@ -136,4 +117,29 @@ void TileLoaderImpl::setMapProvider( MapProviderRef _provider )
     provider = _provider;
 }
 
+TileLoader::TileLoader( MapProviderRef _provider )
+{
+    impl = new TileLoaderImpl( _provider );
+}
+TileLoader::~TileLoader()
+{
+    delete impl;
+}
+void TileLoader::processQueue( std::vector<Coordinate> &queue )
+{
+    impl->processQueue(queue);
+}
+void TileLoader::transferTextures( std::map<Coordinate, TileRef> &tiles)
+{
+    impl->transferTextures(tiles);
+}
+bool TileLoader::hasCoord(const Coordinate &coord)
+{
+    return impl->hasCoord(coord);
+}    
+void TileLoader::setMapProvider( MapProviderRef _provider )
+{
+    impl->setMapProvider(_provider);
+}
+    
 } } // namespace 

@@ -20,7 +20,7 @@ void Map::setup( MapProviderRef _mapProvider, Vec2d _size )
 	
 void Map::update() {
 	// TODO: Move non-drawing logic here
-//    std::cout << "images:       " << images.size() << std::endl;
+//    std::cout << "tiles:       " << tiles.size() << std::endl;
 //    std::cout << "queue:        " << queue.size() << std::endl;
 //    std::cout << "recentImages: " << recentImages.size() << std::endl;
 //    std::cout << "visibleKeys:  " << visibleKeys.size() << std::endl;
@@ -68,9 +68,9 @@ void Map::draw() {
 			// keep this for later:
 			visibleKeys.insert(coord);
 			
-            bool needsTile = images.count(coord) == 0;
+            bool needsTile = tiles.count(coord) == 0;
             
-			if (needsTile || (elapsedSeconds - imageAddedTimes[coord] < 1.0)) {
+			if (needsTile || (elapsedSeconds - tiles[coord]->getLastAddedTime() < 1.0)) {
 				
 				// fetch it if we don't have it
                 if (needsTile) {
@@ -81,18 +81,18 @@ void Map::draw() {
 				bool gotParent = false;
 				for (int i = (int)coord.zoom - 1; i > 0; i--) {
 					Coordinate zoomed = coord.zoomTo(i).container();
-//					if (images.count(zoomed) > 0) {
+//					if (tiles.count(zoomed) > 0) {
 //						visibleKeys.insert(zoomed);
 //						gotParent = true;
 //						break;
 //					}
 					// mark all parent tiles valid until we get one
 					visibleKeys.insert(zoomed);
-					if (images.count(zoomed) == 0) {
+					if (tiles.count(zoomed) == 0) {
 						// force load of parent tiles we don't already have
 						grabTile(zoomed);
 					}
-                    else if (elapsedSeconds - imageAddedTimes[zoomed] >= 1.0) {
+                    else if (elapsedSeconds - tiles[zoomed]->getLastAddedTime() >= 1.0) {
                         // this tile is covered fine
                         gotParent = true;
                         break;
@@ -108,7 +108,7 @@ void Map::draw() {
 //					kids.push_back(zoomed.down());
 //					kids.push_back(zoomed.right().down());
 //					for (int i = 0; i < kids.size(); i++) {
-//						if (images.count(kids[i]) > 0) {
+//						if (tiles.count(kids[i]) > 0) {
 //							visibleKeys.insert(kids[i]);
 //						}
 //					}            
@@ -138,26 +138,32 @@ void Map::draw() {
 		const double ty = center.y + (coord.row - theCoord.row) * tileSize.y;
         const Vec3f pos(tx,ty,0);
 		
-		if (images.count(coord) > 0) {
-			gl::Texture tile = images[coord];
+		if (tiles.count(coord) > 0) 
+        {
+			TileRef tile = tiles[coord];
+
 			// we want this image to be at the end of recentImages, if it's already there we'll remove it and then add it again
-//			recentImages.erase(remove(recentImages.begin(), recentImages.end(), tile), recentImages.end());
             std::vector<Coordinate>::iterator result = find(recentImages.begin(), recentImages.end(), coord);
             if (result != recentImages.end()) {
                 recentImages.erase(result);
             }
+			recentImages.push_back(coord);
+            
+            // position
             Matrix44f mtx;
             mtx.rotate( Vec3f(0,0,rotation) );
             mtx.translate( pos );
             mtx.scale( Vec3f(scale,scale,1) );
-            double tileAge = elapsedSeconds - imageAddedTimes[coord];
+            
+            // opacity
+            double tileAge = elapsedSeconds - tile->getLastAddedTime();
             Vec2d tileCenterFromCenter = ((pos.xy() + tileSize/2.0)) - center;
             double multiplier = 5.0 - constrain( tileCenterFromCenter.length() / tileSize.length(), 0.0, 4.0 );
             double alpha = constrain(tileAge * multiplier, 0.0, 1.0);
-            drawTile( tile, mtx, ColorA(1,1,1,alpha) );
+            
+            drawTile( tile->getTexture(), mtx, ColorA(1,1,1,alpha) );
 //			gl::draw( tile, Rectf(tx, ty, tx+tileSize.x, ty+tileSize.y) );
 			numDrawnImages++;
-			recentImages.push_back(coord);
 		}
 	}
     
@@ -192,15 +198,13 @@ void Map::draw() {
 		//images.values().retainAll(recentImages);
 		// TODO: re-think the stl collections used so that a simpler retainAll equivalent is available
 		// now look in the images map and if the value is no longer in recent images then get rid of it
-		std::map<Coordinate,gl::Texture>::iterator iter = images.begin();
-		std::map<Coordinate,gl::Texture>::iterator endIter = images.end();
+		auto iter = tiles.begin();
+		auto endIter = tiles.end();
 		for (; iter != endIter;) {
             Coordinate coord = iter->first;
-//			gl::Texture tile = iter->second;
-			std::vector<Coordinate>::iterator result = find(recentImages.begin(), recentImages.end(), coord);
+			auto result = find(recentImages.begin(), recentImages.end(), coord);
 			if (result == recentImages.end()) {
-				images.erase(iter++);
-                imageAddedTimes.erase(coord);
+				tiles.erase(iter++);
 			}
 			else {
 				++iter;
@@ -326,8 +330,7 @@ MapExtent Map::getExtent() const
 void Map::setMapProvider( MapProviderRef _mapProvider )
 {
     tileLoader->setMapProvider( _mapProvider );
-    images.clear();	
-    imageAddedTimes.clear();
+    tiles.clear();
     queue.clear();
     recentImages.clear();
     visibleKeys.clear();
@@ -392,12 +395,12 @@ void Map::panTo(const Location &location) {
 //////////////////////////////////////////////////////////////////////////
 
 void Map::grabTile(const Coordinate &coord) {
-	bool isAlreadyLoaded = images.count(coord) > 0;
+	bool isAlreadyLoaded = tiles.count(coord) > 0;
     if (!isAlreadyLoaded) {
         bool isQueued = find(queue.begin(), queue.end(), coord) != queue.end();
         if (!isQueued) {
             // do this one last because it blocks TileLoader
-            bool isPending = tileLoader->isPending(coord);
+            bool isPending = tileLoader->hasCoord(coord);
             if (!isPending) {
                 queue.push_back(coord);
             }
@@ -409,13 +412,7 @@ void Map::processQueue() {
     int baseZoom = constrain((int)round(centerCoordinate.zoom), mapProvider->getMinZoom(), mapProvider->getMaxZoom());
 	sort(queue.begin(), queue.end(), QueueSorter(getCenterCoordinate().zoomTo(baseZoom)));		
 	tileLoader->processQueue(queue);
-	tileLoader->transferTextures(images);
-    for (const auto &pair : images) {
-        Coordinate coord = pair.first;
-        if (imageAddedTimes.count(coord) == 0) {
-            imageAddedTimes[coord] = timer.getSeconds();
-        }
-    }
+	tileLoader->transferTextures(tiles);
 }
 
 void Map::setSize(Vec2d _size) {
