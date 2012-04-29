@@ -13,6 +13,7 @@
 #include "cinder/gl/Texture.h"
 #include "cinder/Vector.h"
 #include "cinder/gl/GlslProg.h"
+#include "cinder/Timer.h"
 
 namespace cinder { namespace modestmaps {
 	
@@ -54,10 +55,15 @@ private:
 	
 	// a list of the most recent MAX_IMAGES_TO_KEEP images we've seen
 	std::vector<Coordinate> recentImages;
-	
+
+    // loaded tiles by time added to screen (parallel with images)
+	std::map<Coordinate, float> imageAddedTimes;
+
 	// keep track of what we can see already:
 	std::set<Coordinate> visibleKeys;
 
+    Timer timer;
+    
 	void grabTile(const Coordinate &coord);
 	
 	void processQueue();

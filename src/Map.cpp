@@ -15,6 +15,7 @@ void Map::setup( MapProviderRef _mapProvider, Vec2d _size )
     centerCoordinate = centerCoordinate.zoomTo(z);
     // start with north up:
     rotation = 0.0;
+    timer.start();
 }     
 	
 void Map::update() {
@@ -28,6 +29,10 @@ void Map::update() {
 
 void Map::draw() {
 	
+    gl::enableAlphaBlending();
+    gl::disableDepthWrite();
+    gl::disableDepthRead();
+    
 	// if we're in between zoom levels, we need to choose the nearest:
 	int baseZoom = constrain((int)round(centerCoordinate.zoom), mapProvider->getMinZoom(), mapProvider->getMaxZoom());
 
@@ -51,6 +56,8 @@ void Map::draw() {
 	maxRow += GRID_PADDING;
 	
 	visibleKeys.clear();
+    
+    const float elapsedSeconds = timer.getSeconds();
 	
 	// grab coords for visible tiles
 	for (int col = minCol; col <= maxCol; col++) {
@@ -61,27 +68,35 @@ void Map::draw() {
 			// keep this for later:
 			visibleKeys.insert(coord);
 			
-			if (images.count(coord) == 0) { // || (ofGetElapsedTimeMillis() - images[coord]->loadTime < 255)) {
+            bool needsTile = images.count(coord) == 0;
+            
+			if (needsTile || (elapsedSeconds - imageAddedTimes[coord] < 1.0)) {
 				
 				// fetch it if we don't have it
-				grabTile(coord);
+                if (needsTile) {
+                    grabTile(coord);
+                }
 				
 				// see if we have  a parent coord for this tile?
 				bool gotParent = false;
-				for (int i = (int)coord.zoom; i > 0; i--) {
+				for (int i = (int)coord.zoom - 1; i > 0; i--) {
 					Coordinate zoomed = coord.zoomTo(i).container();
 //					if (images.count(zoomed) > 0) {
 //						visibleKeys.insert(zoomed);
 //						gotParent = true;
 //						break;
 //					}
-					// mark all parent tiles valid
+					// mark all parent tiles valid until we get one
 					visibleKeys.insert(zoomed);
-					gotParent = true;
 					if (images.count(zoomed) == 0) {
 						// force load of parent tiles we don't already have
 						grabTile(zoomed);
-					}					
+					}
+                    else if (elapsedSeconds - imageAddedTimes[zoomed] >= 1.0) {
+                        // this tile is covered fine
+                        gotParent = true;
+                        break;
+                    }
 				}
 				
 				// or if we have any of the children
@@ -111,18 +126,17 @@ void Map::draw() {
 //    glPushMatrix();
 //    glRotatef(180.0*rotation/M_PI, 0, 0, 1);
 
-	int numDrawnImages = 0;	
-	std::set<Coordinate>::iterator citer;
-	for (citer = visibleKeys.begin(); citer != visibleKeys.end(); citer++) {
-		Coordinate coord = *citer;
+	int numDrawnImages = 0;
+    for (const Coordinate &coord : visibleKeys) {
 		
-		double scale = pow(2.0, centerCoordinate.zoom - coord.zoom);
-        Vec2d tileSize = mapProvider->getTileSize() * scale;
-		Vec2d center = size * 0.5;
-		Coordinate theCoord = centerCoordinate.zoomTo(coord.zoom);
+		const double scale = pow(2.0, centerCoordinate.zoom - coord.zoom);
+        const Vec2d tileSize = mapProvider->getTileSize() * scale;
+		const Vec2d center = size * 0.5;
+		const Coordinate theCoord = centerCoordinate.zoomTo(coord.zoom);
 		
-		double tx = center.x + (coord.column - theCoord.column) * tileSize.x;
-		double ty = center.y + (coord.row - theCoord.row) * tileSize.y;
+		const double tx = center.x + (coord.column - theCoord.column) * tileSize.x;
+		const double ty = center.y + (coord.row - theCoord.row) * tileSize.y;
+        const Vec3f pos(tx,ty,0);
 		
 		if (images.count(coord) > 0) {
 			gl::Texture tile = images[coord];
@@ -134,9 +148,13 @@ void Map::draw() {
             }
             Matrix44f mtx;
             mtx.rotate( Vec3f(0,0,rotation) );
-            mtx.translate( Vec3f(tx,ty,0) );
+            mtx.translate( pos );
             mtx.scale( Vec3f(scale,scale,1) );
-            drawTile( tile, mtx, Color::white() );
+            double tileAge = elapsedSeconds - imageAddedTimes[coord];
+            Vec2d tileCenterFromCenter = ((pos.xy() + tileSize/2.0)) - center;
+            double multiplier = 5.0 - constrain( tileCenterFromCenter.length() / tileSize.length(), 0.0, 4.0 );
+            double alpha = constrain(tileAge * multiplier, 0.0, 1.0);
+            drawTile( tile, mtx, ColorA(1,1,1,alpha) );
 //			gl::draw( tile, Rectf(tx, ty, tx+tileSize.x, ty+tileSize.y) );
 			numDrawnImages++;
 			recentImages.push_back(coord);
@@ -182,6 +200,7 @@ void Map::draw() {
 			std::vector<Coordinate>::iterator result = find(recentImages.begin(), recentImages.end(), coord);
 			if (result == recentImages.end()) {
 				images.erase(iter++);
+                imageAddedTimes.erase(coord);
 			}
 			else {
 				++iter;
@@ -308,6 +327,7 @@ void Map::setMapProvider( MapProviderRef _mapProvider )
 {
     tileLoader->setMapProvider( _mapProvider );
     images.clear();	
+    imageAddedTimes.clear();
     queue.clear();
     recentImages.clear();
     visibleKeys.clear();
@@ -390,6 +410,12 @@ void Map::processQueue() {
 	sort(queue.begin(), queue.end(), QueueSorter(getCenterCoordinate().zoomTo(baseZoom)));		
 	tileLoader->processQueue(queue);
 	tileLoader->transferTextures(images);
+    for (const auto &pair : images) {
+        Coordinate coord = pair.first;
+        if (imageAddedTimes.count(coord) == 0) {
+            imageAddedTimes[coord] = timer.getSeconds();
+        }
+    }
 }
 
 void Map::setSize(Vec2d _size) {
